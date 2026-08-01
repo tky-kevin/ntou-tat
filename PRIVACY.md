@@ -2,9 +2,9 @@
 
 ## 資料流
 
-海大 TAT 沒有自建後端。使用者主動登入時，App 會將學號、密碼與驗證碼直接送至
-國立臺灣海洋大學 AIS 網站 `https://ais.ntou.edu.tw`，並使用 AIS 回傳的 Session
-Cookie 讀取使用者要求的校務資料。
+海大 TAT 是一開源專案。在原生 Android 應用程式中，使用者主動登入時，App 會將學號、密碼與驗證碼直接送至國立臺灣海洋大學 AIS 網站 `https://ais.ntou.edu.tw`，並使用 AIS 回傳的 Session Cookie 讀取使用者要求的校務資料。
+
+在 Web 或 PWA 模式下，因受限於瀏覽器的跨來源資源共用 (CORS) 限制，連線將透過部署在 Cloudflare Worker 的開源 Proxy 中介轉發。該 Proxy 僅負責傳遞請求與回應，不會記錄任何存取日誌，也不會攔截或儲存帳號、密碼、Cookie 與個人資料。
 
 校園連結或交通功能可能開啟第三方網站；除非使用者主動操作該網站，App 不會把 AIS
 帳號、Cookie、課表或成績傳送給第三方。

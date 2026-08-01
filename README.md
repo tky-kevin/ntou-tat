@@ -1,7 +1,6 @@
 # 海大 TAT
 
-海大 TAT 是以 React、TypeScript、Vite 與 Capacitor 製作的非官方 Android
-學生工具，將國立臺灣海洋大學 AIS 的課表、成績與校務資訊整理成行動版介面。
+海大 TAT 是以 React、TypeScript、Vite 與 Capacitor 製作的開源非官方學生工具，同時支援 Android 原生 App 與 Web PWA 跨平台使用，將國立臺灣海洋大學 AIS 的課表、成績與校務資訊整理成現代化的行動版介面。
 
 > 本專案不是海大官方 App，也未受海大委託或背書。AIS 網頁結構或登入流程變更時，
 > 部分功能可能暫時失效。
