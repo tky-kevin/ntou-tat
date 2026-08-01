@@ -20,7 +20,7 @@ import { UnauthorizedError } from './core/api/errors'
 import { emptyCredits } from './core/api/publicData'
 import { clearPortalSession } from './core/api/portal'
 import { readStoredAvatar, storeAvatar } from './avatar'
-import { scoreToGpa } from './gpa'
+import { hasPassingResult, scoreToGpa } from './gpa'
 import { authStore } from './core/storage/authStorage'
 import {
   personalEventsForStudent,
