@@ -3,7 +3,7 @@ import {
   readEncryptedPortalCache,
   writeEncryptedPortalCache,
 } from '../api/portalHttp'
-import type { CreditSummary, Grade, TimetableResponse } from '../types'
+import type { CreditSummary, Grade, TimetableResponse } from '../../types'
 
 export type SemesterCacheEntry = {
   savedAt: string

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { AuthSession } from '../types'
+import type { AuthSession } from '../../types'
 import { createHttpApiClient } from './http'
 
 const jsonResponse = (status: number, body: unknown) =>

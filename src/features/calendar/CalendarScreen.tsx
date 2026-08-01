@@ -1,6 +1,9 @@
-import React, { useState, useRef } from 'react'
+import React, { useState, useRef, useMemo } from 'react'
 import { ChevronLeft, ChevronRight, Plus, Trash2, CalendarDays } from 'lucide-react'
-import type { CalendarEvent } from '../../types'
+
+import { useStudentProfile, useAppData } from '../../core/api/hooks'
+import { useLocalDataStore } from '../../core/store/useLocalDataStore'
+import { AddCalendarEventModal } from './AddCalendarEventModal'
 
 export const monthLabel = (date: Date) =>
   `${date.getFullYear()}年${date.getMonth() + 1}月`
@@ -12,20 +15,28 @@ export const isoDate = (date: Date) => {
   return `${year}-${month}-${day}`
 }
 
-export function CalendarScreen({
-  events,
-  onDeleteEvent,
-  onRequestAdd,
-}: {
-  events: CalendarEvent[]
-  onDeleteEvent: (id: string) => void
-  onRequestAdd: (date: string) => void
-}) {
+export function CalendarScreen() {
+  const { data: appData } = useAppData()
+  const { data: profile } = useStudentProfile()
+  
+  const personalCalendarStore = useLocalDataStore(s => s.personalCalendarStore)
+  const setPersonalCalendarStore = useLocalDataStore(s => s.setPersonalCalendarStore)
+  
+  const studentId = profile?.id ?? ''
+  const personalEvents = studentId ? (personalCalendarStore[studentId] ?? []) : []
+  
+  const officialEvents = useMemo(() => appData?.calendar || [], [appData?.calendar])
+  const events = useMemo(() => [...officialEvents, ...personalEvents], [officialEvents, personalEvents])
+
   const [cursor, setCursor] = useState(() => {
     const now = new Date()
     return new Date(now.getFullYear(), now.getMonth(), 1)
   })
   const [selectedDate, setSelectedDate] = useState(() => isoDate(new Date()))
+  
+  const [isAddOpen, setIsAddOpen] = useState(false)
+  const [addDate, setAddDate] = useState(() => isoDate(new Date()))
+
   const swipeStart = useRef<{ x: number; y: number; pointerId: number } | null>(null)
   const suppressCalendarClick = useRef(false)
   const firstDayOffset = (cursor.getDay() + 6) % 7
@@ -42,6 +53,7 @@ export function CalendarScreen({
     .sort((a, b) =>
       `${a.time ?? '99:99'}-${a.title}`.localeCompare(`${b.time ?? '99:99'}-${b.title}`),
     )
+
   const shiftMonth = (offset: number) => {
     setCursor((current) => {
       const next = new Date(current.getFullYear(), current.getMonth() + offset, 1)
@@ -49,6 +61,7 @@ export function CalendarScreen({
       return next
     })
   }
+
   const startMonthSwipe = (event: React.PointerEvent<HTMLDivElement>) => {
     swipeStart.current = {
       x: event.clientX,
@@ -75,6 +88,22 @@ export function CalendarScreen({
       suppressCalendarClick.current = false
     }, 0)
     shiftMonth(horizontal < 0 ? 1 : -1)
+  }
+
+  const handleDeleteEvent = (id: string) => {
+    const event = personalEvents.find((candidate) => candidate.id === id)
+    if (!event || !confirm(`確定要刪除「${event.title}」嗎？`)) return
+    const nextEvents = personalEvents.filter((candidate) => candidate.id !== id)
+    
+    setPersonalCalendarStore((prev) => {
+      const nextStore = { ...prev }
+      if (nextEvents.length) {
+        nextStore[studentId] = nextEvents
+      } else {
+        delete nextStore[studentId]
+      }
+      return nextStore
+    })
   }
 
   return (
@@ -116,7 +145,10 @@ export function CalendarScreen({
               type="button"
               aria-label="新增個人事件"
               title="新增個人事件"
-              onClick={() => onRequestAdd(selectedDate)}
+              onClick={() => {
+                setAddDate(selectedDate)
+                setIsAddOpen(true)
+              }}
             >
               <Plus size={21} />
             </button>
@@ -175,7 +207,7 @@ export function CalendarScreen({
                   type="button"
                   aria-label={`刪除${event.title}`}
                   title="刪除個人事件"
-                  onClick={() => onDeleteEvent(event.id)}
+                  onClick={() => handleDeleteEvent(event.id)}
                 >
                   <Trash2 size={17} />
                 </button>
@@ -189,6 +221,23 @@ export function CalendarScreen({
           </div>
         )}
       </div>
+
+      {isAddOpen && (
+        <AddCalendarEventModal
+          initialDate={addDate}
+          onClose={() => setIsAddOpen(false)}
+          onSave={(event) => {
+            setPersonalCalendarStore((prev) => {
+              const prevStore = prev[studentId] || []
+              return {
+                ...prev,
+                [studentId]: [...prevStore, { ...event, id: crypto.randomUUID(), source: 'personal' }],
+              }
+            })
+            setIsAddOpen(false)
+          }}
+        />
+      )}
     </section>
   )
 }

@@ -1,4 +1,4 @@
-import type { TimetableSlot } from '../types'
+import type { TimetableSlot } from '../../types'
 
 type CourseMetadata = {
   code: string

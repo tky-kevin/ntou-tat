@@ -1,4 +1,4 @@
-import type { CalendarEvent } from '../types'
+import type { CalendarEvent } from '../../types'
 
 const normalizeDate = (value: string) => {
   const match = value.trim().match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$/)

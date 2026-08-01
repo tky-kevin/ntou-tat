@@ -1,4 +1,4 @@
-import type { CampusLink, CreditSummary, EmergencyContact, TrafficInfo } from '../types'
+import type { CampusLink, CreditSummary, EmergencyContact, TrafficInfo } from '../../types'
 
 export const emptyCredits: CreditSummary = {
   requiredEarned: 0,

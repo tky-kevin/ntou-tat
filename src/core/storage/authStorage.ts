@@ -1,5 +1,5 @@
 import { Preferences } from '@capacitor/preferences'
-import type { AuthSession } from '../types'
+import type { AuthSession } from '../../types'
 
 const AUTH_KEY = 'ntou_tat_auth_session'
 

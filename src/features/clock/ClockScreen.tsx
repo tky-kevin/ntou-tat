@@ -1,13 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { Clock, Trash2 } from 'lucide-react'
+import { useLocalDataStore } from '../../core/store/useLocalDataStore'
 
-export function ClockScreen({
-  alarms,
-  onSaveAlarms,
-}: {
-  alarms: Array<{ id: string; time: string; label: string; active: boolean }>
-  onSaveAlarms: (newAlarms: Array<{ id: string; time: string; label: string; active: boolean }>) => void
-}) {
+export function ClockScreen() {
+  const alarms = useLocalDataStore(s => s.alarms)
+  const setAlarms = useLocalDataStore(s => s.setAlarms)
+
   const [timeText, setTimeText] = useState('')
   const [secText, setSecText] = useState('')
   const [dateText, setDateText] = useState('')
@@ -118,18 +116,16 @@ export function ClockScreen({
       label: alarmLabel.trim() || '鬧鐘',
       active: true,
     }
-    onSaveAlarms([...alarms, newAlarm])
+    setAlarms(() => [...alarms, newAlarm])
     setAlarmLabel('')
   }
 
   const deleteAlarm = (id: string) => {
-    onSaveAlarms(alarms.filter((a) => a.id !== id))
+    setAlarms(() => alarms.filter((a) => a.id !== id))
   }
 
   const toggleAlarmActive = (id: string) => {
-    onSaveAlarms(
-      alarms.map((a) => (a.id === id ? { ...a, active: !a.active } : a))
-    )
+    setAlarms(() => alarms.map((a) => (a.id === id ? { ...a, active: !a.active } : a)))
   }
 
   return (

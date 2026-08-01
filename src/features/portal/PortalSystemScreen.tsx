@@ -1,19 +1,27 @@
-import React, { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { ChevronLeft, ChevronRight, RefreshCw, KeyRound, ExternalLink, Plus, AlertCircle, Building2 } from 'lucide-react'
 import type { PortalSystemNode } from '../../types'
+
+import { useApi } from '../../core/api/hooks'
+import { authStore } from '../../core/storage/authStorage'
+import { credentialsStore } from '../../core/storage/credentialsStorage'
+import { useNavigate } from 'react-router-dom'
 
 const messageFromError = (error: unknown) =>
   error instanceof Error ? error.message : '發生未知錯誤'
 
-export function PortalSystemScreen({
-  loadMenu,
-  onOpenPage,
-  onReauthenticate,
-}: {
-  loadMenu?: (path: string[]) => Promise<PortalSystemNode[]>
-  onOpenPage?: (path: string[]) => Promise<void>
-  onReauthenticate: () => Promise<void>
-}) {
+export function PortalSystemScreen() {
+  const api = useApi()
+  const navigate = useNavigate()
+  
+  const loadMenu = (path: string[]) => api.getPortalSystemMenu?.(path) ?? Promise.reject(new Error('Not supported'))
+  const onOpenPage = (path: string[]) => api.openPortalSystemPage?.(path) ?? Promise.reject(new Error('Not supported'))
+  
+  const onReauthenticate = async () => {
+    await authStore.clearSession()
+    await credentialsStore.clearCredentials()
+    navigate('/login', { replace: true })
+  }
   const [path, setPath] = useState<string[]>([])
   const [nodes, setNodes] = useState<PortalSystemNode[]>([])
   const [loading, setLoading] = useState(true)

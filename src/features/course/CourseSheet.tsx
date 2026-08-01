@@ -1,20 +1,18 @@
-import React from 'react'
-import { X, Trash2, FileText, ExternalLink } from 'lucide-react'
-import type { CourseSummary, CourseFile } from '../../types'
+import { X, FileText, ExternalLink, Trash2 } from 'lucide-react'
+import type { CourseSummary } from '../../types'
+import { useCourseFiles } from '../../core/api/hooks'
 
 export function CourseSheet({
   course,
-  files,
-  loading,
   onClose,
   onDeleteCourse,
 }: {
   course: CourseSummary
-  files: CourseFile[]
-  loading: boolean
   onClose: () => void
-  onDeleteCourse?: (title: string) => void
+  onDeleteCourse?: (courseTitle: string) => void
 }) {
+  const { data: files = [], isLoading: loading } = useCourseFiles(course.id)
+
   return (
     <div className="sheet-backdrop" role="presentation" onClick={onClose}>
       <section className="course-sheet" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>

@@ -1,28 +1,38 @@
-import React, { useState, useRef } from 'react'
+import { useState, useRef } from 'react'
+import { Routes, Route, useNavigate, useLocation } from 'react-router-dom'
 import { Bell, CalendarDays, ChevronRight, LogOut, Phone, Building2, Link as LinkIcon, Bus, ShieldCheck, Camera } from 'lucide-react'
-import type { AppData, MoreView, PortalSystemNode } from '../../types'
+import type { MoreView } from '../../types'
 import { cropAvatarFile } from '../../avatar'
 import { PortalSystemScreen } from '../portal/PortalSystemScreen'
 import { LinkList } from '../../components/LinkList'
 import { emergencyContacts } from '../../core/api/publicData'
 import { apiMode } from '../../core/api'
+import { useStudentProfile, useAppData } from '../../core/api/hooks'
+import { useLocalDataStore } from '../../core/store/useLocalDataStore'
+import { useAppStore } from '../../core/store/useAppStore'
+import { authStore } from '../../core/storage/authStorage'
+import { credentialsStore } from '../../core/storage/credentialsStorage'
 
 const messageFromError = (error: unknown) =>
   error instanceof Error ? error.message : '發生未知錯誤'
 
-export function MoreScreen({
-  avatarUrl,
-  data,
-  onAvatarChange,
-  onLogout,
-  onOpen,
-}: {
-  avatarUrl: string
-  data: AppData
-  onAvatarChange: (dataUrl: string) => void
-  onLogout: () => Promise<void>
-  onOpen: (view: MoreView) => void
-}) {
+export function MoreScreen() {
+  return (
+    <Routes>
+      <Route path="/" element={<MoreRoot />} />
+      <Route path=":view" element={<MoreSubviewWrapper />} />
+    </Routes>
+  )
+}
+
+function MoreRoot() {
+  const navigate = useNavigate()
+  const { data: profile } = useStudentProfile()
+  
+  const avatarUrl = useLocalDataStore(s => s.avatarUrl)
+  const setAvatarUrl = useLocalDataStore(s => s.setAvatarUrl)
+  const setPinLocked = useAppStore(s => s.setIsPinLocked)
+
   const avatarInputRef = useRef<HTMLInputElement>(null)
   const [avatarBusy, setAvatarBusy] = useState(false)
 
@@ -30,13 +40,22 @@ export function MoreScreen({
     if (!file) return
     setAvatarBusy(true)
     try {
-      onAvatarChange(await cropAvatarFile(file))
+      const url = await cropAvatarFile(file)
+      setAvatarUrl(url)
     } catch (error) {
       alert(messageFromError(error))
     } finally {
       setAvatarBusy(false)
       if (avatarInputRef.current) avatarInputRef.current.value = ''
     }
+  }
+
+  const handleLogout = async () => {
+    if (!confirm('確定要登出嗎？')) return
+    await authStore.clearSession()
+    await credentialsStore.clearCredentials()
+    setPinLocked(false)
+    navigate('/login', { replace: true })
   }
 
   const tools: Array<{ icon: typeof Bell; label: string; view: MoreView }> = [
@@ -48,6 +67,9 @@ export function MoreScreen({
     { icon: Phone, label: '緊急聯絡', view: 'emergency' },
     { icon: ShieldCheck, label: '帳號與設定', view: 'settings' },
   ]
+
+  if (!profile) return null
+
   return (
     <section className="more-screen">
       <div className="profile-block">
@@ -60,7 +82,7 @@ export function MoreScreen({
           onClick={() => avatarInputRef.current?.click()}
         >
           <span className="student-avatar large">
-            {avatarUrl ? <img src={avatarUrl} alt="" /> : data.profile.avatarInitials}
+            {avatarUrl ? <img src={avatarUrl} alt="" /> : profile.avatarInitials}
           </span>
           <span className="avatar-picker-badge" aria-hidden="true">
             <Camera size={12} />
@@ -75,15 +97,15 @@ export function MoreScreen({
           onChange={(event) => void changeAvatar(event.target.files?.[0])}
         />
         <div>
-          <strong>{data.profile.name === data.profile.id ? '海大學生' : data.profile.name}</strong>
-          <span>{data.profile.id}</span>
+          <strong>{profile.name === profile.id ? '海大學生' : profile.name}</strong>
+          <span>{profile.id}</span>
         </div>
       </div>
       <div className="tool-list">
         {tools.map((tool) => {
           const Icon = tool.icon
           return (
-            <button key={tool.view} type="button" onClick={() => onOpen(tool.view)}>
+            <button key={tool.view} type="button" onClick={() => navigate(`/app/more/${tool.view}`)}>
               <Icon size={22} />
               <span>{tool.label}</span>
               <ChevronRight size={19} />
@@ -91,7 +113,7 @@ export function MoreScreen({
           )
         })}
       </div>
-      <button className="direct-logout" type="button" onClick={() => void onLogout()}>
+      <button className="direct-logout" type="button" onClick={handleLogout}>
         <LogOut size={22} />
         <span>登出海大 AIS</span>
         <ChevronRight size={19} />
@@ -100,34 +122,31 @@ export function MoreScreen({
   )
 }
 
-export function MoreSubview({
-  data,
-  loadPortalMenu,
-  onLogout,
-  onOpenPortalPage,
-  onReauthenticate,
-  onEnablePin,
-  onDisablePin,
-  hasPin,
-  view,
-}: {
-  data: AppData
-  loadPortalMenu?: (path: string[]) => Promise<PortalSystemNode[]>
-  onLogout: () => Promise<void>
-  onOpenPortalPage?: (path: string[]) => Promise<void>
-  onReauthenticate: () => Promise<void>
-  onEnablePin?: () => void
-  onDisablePin?: () => void
-  hasPin?: boolean
-  view: MoreView
-}) {
+function MoreSubviewWrapper() {
+  const location = useLocation()
+  const view = location.pathname.split('/').pop() as MoreView
+  const { data: appData } = useAppData()
+  const navigate = useNavigate()
+  const setPinLocked = useAppStore(s => s.setIsPinLocked)
+
+  const handleLogout = async () => {
+    if (!confirm('確定要登出嗎？')) return
+    await authStore.clearSession()
+    await credentialsStore.clearCredentials()
+    setPinLocked(false)
+    navigate('/login', { replace: true })
+  }
+
+  // TODO: Add full Pin control later via the new showPinSetup flow
+  const hasPin = credentialsStore.hasPin()
+  const onEnablePin = () => alert('Please implement PIN Setup via useAppStore.setShowPinSetup(true)')
+  const onDisablePin = () => alert('Please implement PIN disable')
+
+  if (!appData) return null
+
   if (view === 'portal') {
     return (
-      <PortalSystemScreen
-        loadMenu={loadPortalMenu}
-        onOpenPage={onOpenPortalPage}
-        onReauthenticate={onReauthenticate}
-      />
+      <PortalSystemScreen />
     )
   }
 
@@ -152,7 +171,7 @@ export function MoreSubview({
             {hasPin ? '停用' : '啟用'}
           </button>
         </div>
-        <button className="logout-button" type="button" onClick={() => void onLogout()}>
+        <button className="logout-button" type="button" onClick={handleLogout}>
           <LogOut size={19} />
           登出
         </button>
@@ -173,12 +192,12 @@ export function MoreSubview({
     )
   }
 
-  if (view === 'campus') return <LinkList items={data.campusLinks} />
-  if (view === 'traffic') return <LinkList items={data.traffic} />
+  if (view === 'campus') return <LinkList items={appData.campusLinks} />
+  if (view === 'traffic') return <LinkList items={appData.traffic} />
 
   if (view === 'announcements') {
-    return data.announcements.length ? (
-      <LinkList items={data.announcements.map((item) => ({
+    return appData.announcements.length ? (
+      <LinkList items={appData.announcements.map((item) => ({
         id: item.id,
         title: item.title,
         subtitle: `${item.source} · ${item.publishedAt}`,
@@ -189,16 +208,20 @@ export function MoreSubview({
     )
   }
 
-  return data.calendar.length ? (
-    <div className="event-list">
-      {data.calendar.map((event) => (
-        <div className="event-row" key={event.id}>
-          <CalendarDays size={20} />
-          <div><strong>{event.title}</strong><span>{event.startsOn}</span></div>
-        </div>
-      ))}
-    </div>
-  ) : (
-    <div className="inline-empty"><CalendarDays size={24} /><span>尚未取得海大官方行事曆</span></div>
-  )
+  if (view === 'calendar') {
+    return appData.calendar.length ? (
+      <div className="event-list">
+        {appData.calendar.map((event) => (
+          <div className="event-row" key={event.id}>
+            <CalendarDays size={20} />
+            <div><strong>{event.title}</strong><span>{event.startsOn}</span></div>
+          </div>
+        ))}
+      </div>
+    ) : (
+      <div className="inline-empty"><CalendarDays size={24} /><span>尚未取得海大官方行事曆</span></div>
+    )
+  }
+
+  return null
 }

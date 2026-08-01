@@ -8,7 +8,7 @@ import type {
   Semester,
   StudentProfile,
   TrafficInfo,
-} from '../types'
+} from '../../types'
 import type { LoginPayload, NtouApi } from './contract'
 import { UnauthorizedError } from './errors'
 import {

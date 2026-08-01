@@ -160,3 +160,13 @@ export type MoreView =
   | 'traffic'
   | 'emergency'
   | 'settings'
+
+export type AppData = {
+  announcements: Announcement[]
+  calendar: CalendarEvent[]
+  campusLinks: CampusLink[]
+  traffic: TrafficInfo[]
+}
+
+export type Omit<T, K extends keyof T> = Pick<T, Exclude<keyof T, K>>
+export type CalendarEventDraft = Omit<CalendarEvent, 'id' | 'source'>

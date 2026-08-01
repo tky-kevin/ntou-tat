@@ -1,4 +1,4 @@
-import type { AuthSession, Grade, StudentProfile, TimetableResponse, TimetableSlot } from '../types'
+import type { AuthSession, Grade, StudentProfile, TimetableResponse, TimetableSlot } from '../../types'
 import { ApiError } from './errors'
 
 type JsonRecord = Record<string, unknown>

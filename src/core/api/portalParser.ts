@@ -1,4 +1,4 @@
-import type { LoginChallenge, StudentProfile } from '../types'
+import type { LoginChallenge, StudentProfile } from '../../types'
 import { ApiError } from './errors'
 
 const AIS_LOGIN_URL = 'https://ais.ntou.edu.tw/'

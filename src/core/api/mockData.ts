@@ -10,7 +10,7 @@ import type {
   StudentProfile,
   TimetableResponse,
   TrafficInfo,
-} from '../types'
+} from '../../types'
 
 export const mockProfile: StudentProfile = {
   id: '01400000',

@@ -12,7 +12,7 @@ import type {
   StudentProfile,
   TimetableResponse,
   TrafficInfo,
-} from '../types'
+} from '../../types'
 
 export type LoginPayload = {
   studentId: string

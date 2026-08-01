@@ -1,6 +1,6 @@
 import { ApiError } from './errors'
 import { assertOk, portalRequest } from './portalHttp'
-import type { PortalSystemNode } from '../types'
+import type { PortalSystemNode } from '../../types'
 
 const AIS_BASE_URL = 'https://ais.ntou.edu.tw/'
 const MENU_URL = new URL('MenuTree.aspx', AIS_BASE_URL).toString()

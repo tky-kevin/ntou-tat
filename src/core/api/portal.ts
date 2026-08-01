@@ -12,7 +12,7 @@ import type {
   StudentProfile,
   TimetableResponse,
   TrafficInfo,
-} from '../types'
+} from '../../types'
 import type { LoginPayload, NtouApi } from './contract'
 import { ApiError, UnauthorizedError } from './errors'
 import { campusLinks, emptyCredits, trafficInfo } from './publicData'

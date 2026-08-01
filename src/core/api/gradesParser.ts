@@ -1,4 +1,4 @@
-import type { Grade } from '../types'
+import type { Grade } from '../../types'
 
 const readDocument = (html: string) =>
   typeof DOMParser === 'undefined' ? null : new DOMParser().parseFromString(html, 'text/html')

@@ -1,30 +1,93 @@
-import React, { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Loader2, RefreshCw, AlertCircle, KeyRound, ShieldCheck } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import type { LoginChallenge } from '../../types'
+import { useApi } from '../../core/api/hooks'
+import { authStore } from '../../core/storage/authStorage'
+import { credentialsStore } from '../../core/storage/credentialsStorage'
 
-type LoginScreenProps = {
-  busy: boolean
-  challengeBusy: boolean
-  error: string | null
-  challenge: LoginChallenge | null
-  autoCaptchaFailed: boolean
-  onRefreshChallenge: () => void
-  onLogin: (studentId: string, password: string, providedCaptchaCode?: string, rememberMe?: boolean) => Promise<void>
-}
+export function LoginScreen() {
+  const api = useApi()
+  const navigate = useNavigate()
 
-export function LoginScreen({
-  busy,
-  challengeBusy,
-  error,
-  challenge,
-  autoCaptchaFailed,
-  onRefreshChallenge,
-  onLogin,
-}: LoginScreenProps) {
   const [studentId, setStudentId] = useState('')
   const [password, setPassword] = useState('')
   const [captchaCode, setCaptchaCode] = useState('')
   const [rememberMe, setRememberMe] = useState(true)
+
+  const [busy, setBusy] = useState(false)
+  const [challengeBusy, setChallengeBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [challenge, setChallenge] = useState<LoginChallenge | null>(null)
+  const [autoCaptchaFailed, setAutoCaptchaFailed] = useState(false)
+
+  const loadChallenge = async () => {
+    setChallengeBusy(true)
+    setError(null)
+    try {
+      const ch = await api.getLoginChallenge?.()
+      if (ch) setChallenge(ch)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '無法取得驗證碼')
+    } finally {
+      setChallengeBusy(false)
+    }
+  }
+
+  useEffect(() => {
+    void loadChallenge()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (busy || challengeBusy || !studentId || !password) return
+
+    setBusy(true)
+    setError(null)
+
+    try {
+      let finalCaptcha = captchaCode
+      if (!autoCaptchaFailed && challenge?.captchaDataUrl) {
+        try {
+          const { recognizeCaptcha } = await import('../../utils/ocr')
+          finalCaptcha = await recognizeCaptcha(challenge.captchaDataUrl)
+        } catch (ocrErr) {
+          console.warn('[OCR] fallback to manual', ocrErr)
+          setAutoCaptchaFailed(true)
+          setBusy(false)
+          return
+        }
+      }
+
+      const session = await api.login({
+        studentId,
+        password,
+        captchaCode: finalCaptcha || undefined,
+        challenge: challenge ?? undefined,
+      })
+
+      await authStore.saveSession(session)
+
+      if (rememberMe) {
+        await credentialsStore.saveCredentials({ studentId, password })
+      } else {
+        await credentialsStore.clearCredentials()
+      }
+
+      navigate('/app/timetable', { replace: true })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '登入失敗'
+      setError(msg)
+      if (msg.includes('驗證碼')) {
+        setAutoCaptchaFailed(true)
+      }
+      setCaptchaCode('')
+      void loadChallenge()
+    } finally {
+      setBusy(false)
+    }
+  }
 
   return (
     <div className="login-page">
@@ -35,12 +98,7 @@ export function LoginScreen({
           </div>
           <div><h1>海大 TAT</h1><p>National Taiwan Ocean University</p></div>
         </div>
-        <form
-          onSubmit={(event) => {
-            event.preventDefault()
-            void onLogin(studentId, password, autoCaptchaFailed ? captchaCode : undefined, rememberMe)
-          }}
-        >
+        <form onSubmit={handleLogin}>
           <label>
             <span>學號</span>
             <input
@@ -74,7 +132,7 @@ export function LoginScreen({
                   type="button"
                   className="refresh-captcha"
                   disabled={challengeBusy || busy}
-                  onClick={onRefreshChallenge}
+                  onClick={loadChallenge}
                   title="重新產生驗證碼"
                 >
                   {challengeBusy ? <Loader2 size={18} className="spin" /> : <RefreshCw size={18} />}

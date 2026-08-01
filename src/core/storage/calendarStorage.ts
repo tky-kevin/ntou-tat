@@ -1,4 +1,4 @@
-import type { CalendarEvent } from '../types'
+import type { CalendarEvent } from '../../types'
 
 const STORAGE_KEY = 'ntou_personal_calendar_v1'
 
