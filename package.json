@@ -10,7 +10,10 @@
     "preview": "vite preview",
     "test": "vitest run",
     "cap:sync": "vite build && cap sync android",
-    "android:debug": "npm run build && cap sync android && cd android && gradlew.bat assembleDebug"
+    "android:debug": "npm run build && cap sync android && cd android && gradlew.bat assembleDebug",
+    "proxy:deploy": "wrangler deploy --config proxy-worker/wrangler.json",
+    "proxy:dev": "wrangler dev --config proxy-worker/wrangler.json",
+    "proxy:tail": "wrangler tail ntou-proxy --config proxy-worker/wrangler.json"
   },
   "dependencies": {
     "@capacitor/android": "^8.4.2",
@@ -19,21 +22,29 @@
     "@capacitor/preferences": "^8.0.1",
     "@capacitor/status-bar": "^8.0.3",
     "capacitor-secure-storage-plugin": "^0.13.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "lucide-react": "^1.26.0",
     "onnxruntime-web": "^1.27.0",
     "react": "^19.2.7",
-    "react-dom": "^19.2.7"
+    "react-dom": "^19.2.7",
+    "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {
     "@capacitor/cli": "^8.4.2",
+    "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^24.13.2",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
     "oxlint": "^1.71.0",
+    "sharp": "^0.35.3",
+    "tailwindcss": "^4.3.3",
     "typescript": "~6.0.2",
     "vite": "^8.1.1",
+    "vite-plugin-pwa": "^1.3.0",
     "vite-plugin-static-copy": "^4.1.1",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.10",
+    "wrangler": "^4.118.0"
   }
 }

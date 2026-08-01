@@ -286,13 +286,23 @@ export const createPortalApiClient = (store: AuthStore): NtouApi => {
         throw new ApiError('請輸入海大 AIS 驗證碼', 400, 'CAPTCHA_REQUIRED')
       }
 
-      const response = await portalRequest({
+      let response = await portalRequest({
         url: challenge.loginUrl,
         method: 'POST',
         headers: formHeaders,
         data: buildLoginBody(payload, challenge),
       })
       assertOk(response, '海大 AIS 登入請求失敗')
+
+      for (let redirectCount = 0; redirectCount < 4; redirectCount += 1) {
+        const clientRedirect = parseAisClientRedirect(response.data, response.url)
+        if (!clientRedirect) break
+        response = await portalRequest({
+          url: clientRedirect,
+          method: 'GET',
+          headers: { Accept: 'text/html,application/xhtml+xml', Referer: response.url },
+        })
+      }
       
       if (response.data.includes('ConfirmInOrOut.aspx') || response.url.includes('ConfirmInOrOut')) {
         await portalRequest({
@@ -544,3 +554,19 @@ export const createPortalApiClient = (store: AuthStore): NtouApi => {
 }
 
 export const clearPortalSession = clearPortalCookies
+
+/**
+ * 使用者主動登出時通知 AIS 結束遠端工作階段，再清除裝置端 Cookie。
+ * 即使遠端已逾時或網路失敗，也一定會清除本機登入狀態。
+ */
+export const logoutPortalSession = async () => {
+  try {
+    await portalRequest({
+      url: new URL('LogOut.aspx', AIS_BASE_URL).toString(),
+      method: 'GET',
+      headers: { Accept: 'text/html,application/xhtml+xml', Referer: AIS_BASE_URL },
+    })
+  } finally {
+    await clearPortalCookies()
+  }
+}

@@ -12,6 +12,94 @@ export type PortalResponse = {
 
 const isNative = () => Capacitor.isNativePlatform()
 
+// ---------------------------------------------------------------------------
+// Cloudflare Worker Proxy（PWA / 瀏覽器環境專用）
+// ---------------------------------------------------------------------------
+
+const getProxyUrls = (): string[] => {
+  const envUrls = import.meta.env.VITE_NTOU_PROXY_URLS
+  if (envUrls) {
+    return envUrls.split(',').map((url: string) => url.trim()).filter(Boolean)
+  }
+  return ['https://ntou-proxy.tky-kevintang.workers.dev/']
+}
+
+/**
+ * PWA 環境下的 Cookie 暫存（sessionStorage）
+ * 以目標 hostname 為 key 儲存 cookie 字串。
+ * 視窗關閉後自動清除，行為與 Native 的 WKWebView cookie store 一致。
+ */
+const WEB_COOKIE_KEY_PREFIX = 'ntou_proxy_cookie_'
+
+const webCookieKey = (url: string) => {
+  try {
+    return `${WEB_COOKIE_KEY_PREFIX}${new URL(url).hostname}`
+  } catch {
+    return `${WEB_COOKIE_KEY_PREFIX}default`
+  }
+}
+
+const readWebCookies = (url: string): string =>
+  sessionStorage.getItem(webCookieKey(url)) ?? ''
+
+const writeWebCookies = (url: string, setCookieHeader: string) => {
+  if (!setCookieHeader) return
+  // 合併新 cookie：解析 Set-Cookie 字串並覆蓋同名 cookie
+  const existing = parseWebCookieMap(readWebCookies(url))
+  const incoming = parseSetCookieEntries(setCookieHeader)
+  const merged = { ...existing, ...incoming }
+  sessionStorage.setItem(webCookieKey(url), stringifyCookieMap(merged))
+}
+
+const clearWebCookies = (url: string) => {
+  sessionStorage.removeItem(webCookieKey(url))
+}
+
+// ---------------------------------------------------------------------------
+// Cookie parsing utilities
+// ---------------------------------------------------------------------------
+
+const splitSetCookieHeader = (value: string) =>
+  value
+    .split(/,(?=\s*[\w!#$%&'*+.^`|~-]+=)/)
+    .map((cookie) => cookie.trim())
+    .filter(Boolean)
+
+const parseSetCookieEntries = (setCookie: string): Record<string, string> => {
+  const result: Record<string, string> = {}
+  for (const entry of splitSetCookieHeader(setCookie)) {
+    const part = entry.split(';')[0]?.trim()
+    if (!part) continue
+    const eqIdx = part.indexOf('=')
+    if (eqIdx === -1) continue
+    const name = part.slice(0, eqIdx).trim()
+    const value = part.slice(eqIdx + 1).trim()
+    if (name) result[name] = value
+  }
+  return result
+}
+
+const parseWebCookieMap = (cookieString: string): Record<string, string> => {
+  const result: Record<string, string> = {}
+  for (const pair of cookieString.split(';')) {
+    const trimmed = pair.trim()
+    if (!trimmed) continue
+    const eqIdx = trimmed.indexOf('=')
+    if (eqIdx === -1) continue
+    result[trimmed.slice(0, eqIdx).trim()] = trimmed.slice(eqIdx + 1).trim()
+  }
+  return result
+}
+
+const stringifyCookieMap = (map: Record<string, string>): string =>
+  Object.entries(map)
+    .map(([k, v]) => `${k}=${v}`)
+    .join('; ')
+
+// ---------------------------------------------------------------------------
+// Native plugin
+// ---------------------------------------------------------------------------
+
 type NativePortalPlugin = {
   request(options: {
     url: string
@@ -79,6 +167,96 @@ const base64FromArrayBuffer = (buffer: ArrayBuffer) => {
   return btoa(binary)
 }
 
+// ---------------------------------------------------------------------------
+// Proxy request (Web / PWA 環境)
+// ---------------------------------------------------------------------------
+
+const buildProxyRequest = (options: PortalRequestOptions) => {
+  const targetUrl = options.url
+  const existingCookies = readWebCookies(targetUrl)
+
+  const callerCookie = (normalizeHeaders(options.headers)['Cookie'] as string | undefined) ?? ''
+  const existingMap = parseWebCookieMap(existingCookies)
+  const callerMap = parseWebCookieMap(callerCookie)
+  const mergedMap = { ...existingMap, ...callerMap }
+  const mergedCookie = stringifyCookieMap(mergedMap)
+
+  const requestHeaders: Record<string, string> = {
+    ...normalizeHeaders(options.headers),
+    'User-Agent': navigator.userAgent,
+  }
+  if (mergedCookie) {
+    requestHeaders['Cookie'] = mergedCookie
+  }
+
+  return {
+    targetUrl,
+    proxyBody: JSON.stringify({
+    url: targetUrl,
+    method: options.method ?? 'GET',
+    headers: requestHeaders,
+    body: typeof options.data === 'string' ? options.data : null,
+    }),
+  }
+}
+
+const persistProxyCookies = (targetUrl: string, response: Response) => {
+  const proxyCookieHeader = response.headers.get('X-Proxy-Set-Cookie')
+  if (proxyCookieHeader) {
+    writeWebCookies(targetUrl, proxyCookieHeader)
+  }
+}
+
+const proxyFetch = async (proxyBody: string) => {
+  const urls = getProxyUrls()
+  let lastError: Error | null = null
+
+  for (const proxyUrl of urls) {
+    try {
+      const response = await fetch(proxyUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: proxyBody,
+      })
+      
+      // If response is not OK (and not 502 which our worker explicitly returns on upstream fail),
+      // we fallback to the next proxy.
+      if (!response.ok && response.status !== 502) {
+        throw new Error(`Proxy ${proxyUrl} returned status ${response.status}`)
+      }
+      return response
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err))
+      console.warn(`[Proxy] Request failed for ${proxyUrl}, trying next fallback...`, err)
+    }
+  }
+
+  throw lastError || new Error('All proxy fallback URLs failed')
+}
+
+const proxyRequest = async (options: PortalRequestOptions): Promise<PortalResponse> => {
+  const { targetUrl, proxyBody } = buildProxyRequest(options)
+
+  const response = await proxyFetch(proxyBody)
+
+  const responseText = await response.text()
+  const responseHeaders = Object.fromEntries(response.headers.entries())
+  persistProxyCookies(targetUrl, response)
+
+  const finalUrl = response.headers.get('X-Proxy-Final-Url') ?? targetUrl
+
+  return {
+    status: response.status,
+    data: responseText,
+    headers: responseHeaders,
+    url: finalUrl,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
 export const portalRequest = async (options: PortalRequestOptions): Promise<PortalResponse> => {
   if (isNative()) {
     const nativeTimeoutMs = options.timeoutMs ?? NATIVE_REQUEST_TIMEOUT_MS
@@ -95,19 +273,8 @@ export const portalRequest = async (options: PortalRequestOptions): Promise<Port
     )
   }
 
-  const response = await fetch(options.url, {
-    method: options.method ?? 'GET',
-    headers: normalizeHeaders(options.headers),
-    body: typeof options.data === 'string' ? options.data : undefined,
-    credentials: 'include',
-  })
-
-  return {
-    status: response.status,
-    data: await response.text(),
-    headers: Object.fromEntries(response.headers.entries()),
-    url: response.url,
-  }
+  // PWA 環境：透過 Cloudflare Proxy
+  return proxyRequest(options)
 }
 
 export const assertOk = (response: PortalResponse, message: string) => {
@@ -115,12 +282,6 @@ export const assertOk = (response: PortalResponse, message: string) => {
     throw new ApiError(message, response.status, 'PORTAL_HTTP_ERROR')
   }
 }
-
-const splitSetCookieHeader = (value: string) =>
-  value
-    .split(/,(?=\s*[\w!#$%&'*+.^`|~-]+=)/)
-    .map((cookie) => cookie.trim())
-    .filter(Boolean)
 
 const cookieHeaderFromSetCookie = (headers: HttpHeaders) => {
   const setCookie = readHeader(headers, 'set-cookie')
@@ -135,8 +296,17 @@ const cookieHeaderFromSetCookie = (headers: HttpHeaders) => {
 }
 
 export const getPortalCookieHeader = async (responseHeaders?: HttpHeaders) => {
-  const cookiesFromHeaders = responseHeaders ? cookieHeaderFromSetCookie(responseHeaders) : ''
-  return isNative() ? '' : cookiesFromHeaders
+  // Native：讓 Capacitor 的 WKWebView/OkHttp 管理 Cookie，不需手動帶入
+  if (isNative()) return ''
+  // Web：從 response headers 讀取（proxy 已轉換 Set-Cookie → X-Proxy-Set-Cookie）
+  const proxyCookie = responseHeaders?.['x-proxy-set-cookie']
+  if (proxyCookie) {
+    return splitSetCookieHeader(proxyCookie)
+      .map((cookie) => cookie.split(';')[0]?.trim())
+      .filter(Boolean)
+      .join('; ')
+  }
+  return responseHeaders ? cookieHeaderFromSetCookie(responseHeaders) : ''
 }
 
 export const portalImageDataUrl = async (url: string, referer: string, cookieHeader?: string) => {
@@ -160,12 +330,20 @@ export const portalImageDataUrl = async (url: string, referer: string, cookieHea
     return response.dataUrl
   }
 
+  // PWA 環境：透過 Proxy 以單一請求取得圖片，避免驗證碼與登入表單不同步。
   try {
-    const response = await fetch(url, { headers, credentials: 'include' })
+    const { targetUrl, proxyBody } = buildProxyRequest({
+      url,
+      method: 'GET',
+      headers,
+    })
+    const response = await proxyFetch(proxyBody)
+    persistProxyCookies(targetUrl, response)
     if (!response.ok) {
       return undefined
     }
-    const contentType = response.headers.get('content-type') || 'image/png'
+    const contentType = response.headers.get('Content-Type') || 'image/png'
+    if (!contentType.toLowerCase().startsWith('image/')) return undefined
     const base64 = base64FromArrayBuffer(await response.arrayBuffer())
     return `data:${contentType};base64,${base64}`
   } catch {
@@ -175,6 +353,11 @@ export const portalImageDataUrl = async (url: string, referer: string, cookieHea
 
 export const clearPortalCookies = async () => {
   if (!isNative()) {
+    // PWA：清除所有 sessionStorage 中的 proxy cookie
+    const keysToRemove = Object.keys(sessionStorage).filter((k) =>
+      k.startsWith(WEB_COOKIE_KEY_PREFIX),
+    )
+    keysToRemove.forEach((k) => sessionStorage.removeItem(k))
     return
   }
 
@@ -228,3 +411,6 @@ export const launchPortalSystemPage = async (url: string) => {
 
   window.open(parsed.toString(), '_blank', 'noopener,noreferrer')
 }
+
+/** 清除 PWA web cookie store（供測試或手動呼叫） */
+export const clearWebProxyCookies = (targetUrl: string) => clearWebCookies(targetUrl)

@@ -51,6 +51,8 @@ import {
   writeSemesterCache,
   type SemesterCacheEntry,
 } from './storage/semesterCache'
+import { PinSetupScreen } from './features/pin/PinSetupScreen'
+import { PinUnlockScreen } from './features/pin/PinUnlockScreen'
 import type {
   Announcement,
   AuthSession,
@@ -289,6 +291,10 @@ function App() {
   const [loginChallenge, setLoginChallenge] = useState<LoginChallenge | null>(null)
   const [challengeBusy, setChallengeBusy] = useState(false)
   const [autoCaptchaFailed, setAutoCaptchaFailed] = useState(false)
+  const [isPinLocked, setIsPinLocked] = useState(false)
+  const [showPinSetup, setShowPinSetup] = useState(false)
+  const [showPinVerifyForDisable, setShowPinVerifyForDisable] = useState(false)
+  const [hasPin, setHasPin] = useState(false)
 
   // --- NTOU TAT Heavy 重構合併新增之狀態 ---
   const [customCourses, setCustomCourses] = useState<Record<string, TimetableSlot[]>>(() => {
@@ -568,6 +574,13 @@ function App() {
     let mounted = true
     const boot = async () => {
       try {
+        const { credentialsStore } = await import('./storage/credentialsStorage')
+        if (credentialsStore.hasPin()) {
+          setIsPinLocked(true)
+          if (mounted) setIsBooting(false)
+          return
+        }
+
         const savedSession = await authStore.getSession()
         if (!mounted) return
         setSession(savedSession)
@@ -597,6 +610,12 @@ function App() {
       mounted = false
     }
   }, [loadAppData, loadLoginChallenge])
+
+  useEffect(() => {
+    import('./storage/credentialsStorage').then(({ credentialsStore }) => {
+      setHasPin(credentialsStore.hasPin())
+    })
+  }, [showPinSetup, showPinVerifyForDisable])
 
   useEffect(() => {
     const handleBackButton = CapApp.addListener('backButton', () => {
@@ -839,6 +858,59 @@ function App() {
     }
   }, [mergedGrades])
 
+  if (isPinLocked) {
+    return (
+      <PinUnlockScreen 
+        onUnlocked={async () => {
+          setIsPinLocked(false)
+          setIsBooting(true)
+          const savedSession = await authStore.getSession()
+          setSession(savedSession)
+          if (savedSession) {
+            await loadAppData()
+          } else {
+            await loadLoginChallenge()
+          }
+          setIsBooting(false)
+        }} 
+        onForgotPin={() => {
+          setIsPinLocked(false)
+          authStore.clearSession()
+          setSession(null)
+          import('./storage/credentialsStorage').then(({ credentialsStore }) => {
+            credentialsStore.clearCredentials()
+          })
+          loadLoginChallenge()
+        }}
+      />
+    )
+  }
+
+  if (showPinSetup) {
+    return (
+      <PinSetupScreen 
+        onSetupComplete={() => setShowPinSetup(false)} 
+        onCancel={() => setShowPinSetup(false)} 
+      />
+    )
+  }
+
+  if (showPinVerifyForDisable) {
+    return (
+      <PinUnlockScreen 
+        onUnlocked={async (pin) => {
+          const { credentialsStore } = await import('./storage/credentialsStorage')
+          await credentialsStore.removePin(pin)
+          setShowPinVerifyForDisable(false)
+        }} 
+        onForgotPin={() => {
+          setShowPinVerifyForDisable(false)
+          alert('請先登出並清除資料再重設 PIN 碼')
+        }}
+      />
+    )
+  }
+
   if (isBooting) return <LoadingScreen />
 
   if (!session || !data) {
@@ -975,6 +1047,9 @@ function App() {
                 onReauthenticate={beginPortalReauthentication}
                 loadPortalMenu={api.getPortalSystemMenu}
                 onOpenPortalPage={api.openPortalSystemPage}
+                onEnablePin={() => setShowPinSetup(true)}
+                onDisablePin={() => setShowPinVerifyForDisable(true)}
+                hasPin={hasPin}
               />
             ) : selectedTab === 'timetable' ? (
               <TimetableScreen
@@ -1791,6 +1866,9 @@ function MoreSubview({
   onLogout,
   onOpenPortalPage,
   onReauthenticate,
+  onEnablePin,
+  onDisablePin,
+  hasPin,
   view,
 }: {
   data: AppData
@@ -1798,6 +1876,9 @@ function MoreSubview({
   onLogout: () => Promise<void>
   onOpenPortalPage?: (path: string[]) => Promise<void>
   onReauthenticate: () => Promise<void>
+  onEnablePin?: () => void
+  onDisablePin?: () => void
+  hasPin?: boolean
   view: MoreView
 }) {
   if (view === 'portal') {
@@ -1820,6 +1901,16 @@ function MoreSubview({
         <div className="settings-row">
           <span>Cookie</span>
           <strong>僅存在本機</strong>
+        </div>
+        <div className="settings-row">
+          <span>PIN 碼保護</span>
+          <button 
+            className="secondary-button" 
+            onClick={hasPin ? onDisablePin : onEnablePin}
+            style={{ padding: '6px 12px', fontSize: '13px', borderRadius: '6px', background: 'var(--brand)', color: 'white', fontWeight: 'bold' }}
+          >
+            {hasPin ? '停用' : '啟用'}
+          </button>
         </div>
         <button className="logout-button" type="button" onClick={() => void onLogout()}>
           <LogOut size={19} />

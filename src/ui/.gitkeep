@@ -1,0 +1,4 @@
+# src/ui — Design System 元件庫預留目錄
+
+此目錄預留給 shadcn/ui 元件與 Design System 設定。
+Phase 2-B 完成後，shadcn/ui 元件將安裝至此目錄。
