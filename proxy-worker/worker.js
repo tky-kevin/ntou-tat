@@ -156,14 +156,14 @@ export default {
     }
 
     if (request.method !== 'POST') {
-      return new Response('Method Not Allowed', { status: 405 })
+      return new Response('Method Not Allowed', { status: 405, headers: corsHeaders(origin) })
     }
 
     let payload
     try {
       payload = await request.json()
     } catch {
-      return new Response('Invalid JSON body', { status: 400 })
+      return new Response('Invalid JSON body', { status: 400, headers: corsHeaders(origin) })
     }
 
     const { url, method = 'GET', headers: reqHeaders = {}, body = null } = payload
@@ -173,14 +173,14 @@ export default {
     try {
       targetUrl = new URL(url)
     } catch {
-      return new Response('Invalid target URL', { status: 400 })
+      return new Response('Invalid target URL', { status: 400, headers: corsHeaders(origin) })
     }
 
     if (
       targetUrl.protocol !== 'https:' ||
       !ALLOWED_TARGET_HOSTS.includes(targetUrl.hostname)
     ) {
-      return new Response('Target host not allowed', { status: 403 })
+      return new Response('Target host not allowed', { status: 403, headers: corsHeaders(origin) })
     }
 
     // Forward the request (with manual redirect + cookie tracking)
@@ -188,7 +188,7 @@ export default {
     try {
       result = await fetchWithCookies(targetUrl.toString(), method, reqHeaders, body)
     } catch (err) {
-      return new Response(`Upstream fetch failed: ${err.message}`, { status: 502 })
+      return new Response(`Upstream fetch failed: ${err.message}`, { status: 502, headers: corsHeaders(origin) })
     }
 
     const { response: upstream, finalUrl, jar } = result

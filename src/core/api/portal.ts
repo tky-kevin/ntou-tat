@@ -236,6 +236,7 @@ export const createPortalApiClient = (store: AuthStore): NtouApi => {
 
   return {
     async getLoginChallenge() {
+      clearPortalCookies()
       latestGrades = []
       featureUrls.clear()
       systemMenuCache.clear()

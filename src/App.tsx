@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import './App.css'
 import { Routes, Route, useNavigate } from 'react-router-dom'
 import { ApiProvider } from './core/api/ApiProvider'
 import { AuthGuard } from './components/AuthGuard'

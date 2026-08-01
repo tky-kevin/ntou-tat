@@ -30,10 +30,10 @@ export default defineConfig({
         // 允許快取較大的 ONNX wasm 模型
         maximumFileSizeToCacheInBytes: 30_000_000,
         globPatterns: ['**/*.{js,css,html,ico,png,svg,wasm}'],
-        // 針對 ONNX wasm 使用 NetworkFirst 策略（體積大，優先用快取）
+        // 針對 ONNX wasm 與模型檔 使用 CacheFirst 策略（體積大，優先用快取）
         runtimeCaching: [
           {
-            urlPattern: /\.wasm$/,
+            urlPattern: /\.(?:wasm|onnx)$/,
             handler: 'CacheFirst',
             options: {
               cacheName: 'wasm-cache',

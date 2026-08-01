@@ -21,6 +21,10 @@ const getProxyUrls = (): string[] => {
   if (envUrls) {
     return envUrls.split(',').map((url: string) => url.trim()).filter(Boolean)
   }
+  const envProxyUrl = import.meta.env.VITE_NTOU_PROXY_URL
+  if (envProxyUrl) {
+    return [envProxyUrl]
+  }
   return ['https://ntou-proxy.tky-kevintang.workers.dev/']
 }
 

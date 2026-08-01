@@ -31,9 +31,9 @@ export function AppShell() {
   const isMoreSubview = location.pathname.startsWith('/app/more/') && location.pathname !== '/app/more'
   
   return (
-    <div className="app">
-      <header className="header">
-        <div className="header-brand" onClick={() => navigate('/app/timetable')} style={{ cursor: 'pointer' }}>
+    <div className="app-shell">
+      <header className="app-header">
+        <div className="header-main" onClick={() => navigate('/app/timetable')} style={{ cursor: 'pointer' }}>
           <img src={logoUrl} alt="Logo" width={24} height={24} />
           <h1>海大 TAT</h1>
         </div>
