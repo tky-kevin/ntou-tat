@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { KeyRound, Delete } from 'lucide-react'
-import { credentialsStore } from '../../storage/credentialsStorage'
+import { credentialsStore } from '../../core/storage/credentialsStorage'
 
 type Props = {
   onUnlocked: (pin: string) => void

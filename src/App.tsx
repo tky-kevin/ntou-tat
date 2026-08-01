@@ -31,28 +31,43 @@ import {
   X,
 } from 'lucide-react'
 import './App.css'
-import { apiMode, createNtouApi } from './api'
-import { UnauthorizedError } from './api/errors'
-import { emergencyContacts, emptyCredits } from './api/publicData'
-import { clearPortalSession } from './api/portal'
+import { apiMode, createNtouApi } from './core/api'
+import { UnauthorizedError } from './core/api/errors'
+import { emergencyContacts, emptyCredits } from './core/api/publicData'
+import { clearPortalSession } from './core/api/portal'
 import { cropAvatarFile, readStoredAvatar, storeAvatar } from './avatar'
 import { GPA_MAX, hasPassingResult, scoreToGpa } from './gpa'
-import { authStore } from './storage/authStorage'
+import { authStore } from './core/storage/authStorage'
 import {
   personalEventsForStudent,
   readPersonalCalendarStore,
   writePersonalCalendarStore,
   type PersonalCalendarStore,
-} from './storage/calendarStorage'
+} from './core/storage/calendarStorage'
 import { semestersForStudent } from './semester'
 import {
   clearSemesterCache,
   readSemesterCache,
   writeSemesterCache,
   type SemesterCacheEntry,
-} from './storage/semesterCache'
+} from './core/storage/semesterCache'
 import { PinSetupScreen } from './features/pin/PinSetupScreen'
 import { PinUnlockScreen } from './features/pin/PinUnlockScreen'
+import { TimetableScreen } from './features/timetable/TimetableScreen'
+import { coursesFromTimetable } from './features/timetable/utils'
+import { CalendarScreen } from './features/calendar/CalendarScreen'
+import { GradesScreen } from './features/grades/GradesScreen'
+import { creditSummaryFromGrades } from './features/grades/utils'
+import { MoreScreen, MoreSubview } from './features/more/MoreScreen'
+import { moreViewTitle } from './features/more/utils'
+import { PortalSystemScreen } from './features/portal/PortalSystemScreen'
+import { CourseSheet } from './features/course/CourseSheet'
+import { AddCourseModal } from './features/course/AddCourseModal'
+import { LoginScreen } from './features/auth/LoginScreen'
+import { LoadingScreen } from './components/LoadingScreen'
+import { ClockScreen } from './features/clock/ClockScreen'
+import { AddCalendarEventModal } from './features/calendar/AddCalendarEventModal'
+import { AddGradeModal } from './features/grades/AddGradeModal'
 import type {
   Announcement,
   AuthSession,
@@ -92,41 +107,6 @@ type CalendarEventDraft = Pick<
   'title' | 'startsOn' | 'endsOn' | 'category' | 'time' | 'notes'
 >
 
-const weekdays = [
-  { value: 1, short: '一' },
-  { value: 2, short: '二' },
-  { value: 3, short: '三' },
-  { value: 4, short: '四' },
-  { value: 5, short: '五' },
-]
-
-const periods = [
-  { value: 0, time: '06:20' },
-  { value: 1, time: '08:20' },
-  { value: 2, time: '09:20' },
-  { value: 3, time: '10:20' },
-  { value: 4, time: '11:15' },
-  { value: 5, time: '12:10' },
-  { value: 6, time: '13:10' },
-  { value: 7, time: '14:10' },
-  { value: 8, time: '15:10' },
-  { value: 9, time: '16:05' },
-  { value: 10, time: '17:30' },
-  { value: 11, time: '18:30' },
-  { value: 12, time: '19:25' },
-  { value: 13, time: '20:20' },
-  { value: 14, time: '21:15' },
-]
-
-const getPeriodLabel = (val: number) => {
-  if (val === 0) return '0'
-  if (val >= 1 && val <= 4) return String(val)
-  if (val === 5) return '中午'
-  if (val >= 6 && val <= 10) return String(val - 1) // 6->5, 7->6, 8->7, 9->8, 10->9
-  if (val >= 11 && val <= 15) return String(val - 1)
-  return String(val)
-}
-
 const tabs: Array<{ key: TabKey; label: string; icon: typeof CalendarDays }> = [
   { key: 'timetable', label: '課表', icon: Clock3 },
   { key: 'calendar', label: '行事曆', icon: CalendarDays },
@@ -146,109 +126,13 @@ const tabTitles: Record<TabKey, string> = {
 const messageFromError = (error: unknown) =>
   error instanceof Error ? error.message : '發生未知錯誤'
 
-const coursesFromTimetable = (slots: TimetableSlot[]): CourseSummary[] => {
-  const courses = new Map<string, CourseSummary>()
-  slots.forEach((slot) => {
-    if (!courses.has(slot.courseId)) {
-      courses.set(slot.courseId, {
-        id: slot.courseId,
-        code: slot.courseCode,
-        title: slot.courseTitle,
-        instructor: slot.instructor,
-        classroom: slot.classroom,
-        credits: slot.credits,
-        color: slot.color,
-      })
-    }
-  })
-  return [...courses.values()]
-}
-
-const periodsForSlot = (slot: TimetableSlot) => {
-  const parsed = slot.section.match(/\d+/g)?.map(Number).filter((value) => value >= 0 && value <= 14)
-  if (parsed?.length) {
-    const first = Math.min(...parsed)
-    const last = Math.max(...parsed)
-    return Array.from({ length: last - first + 1 }, (_, index) => first + index)
-  }
-
-  const start = periods.find((period) => period.time === slot.startsAt)?.value
-  return start === undefined ? [] : [start]
-}
-
-const coursePalette = ['#acd6f4', '#eef0b3', '#b9dfc4', '#f1bcc8', '#cdbfee', '#b9dedc']
 const TIMETABLE_VIEW_STORAGE_KEY = 'ntou-timetable-view-v2'
 
-const courseColor = (slot: TimetableSlot) => {
-  const key = slot.courseId || slot.courseTitle
-  const hash = [...key].reduce((total, character) => total + character.charCodeAt(0), 0)
-  return coursePalette[hash % coursePalette.length]
-}
 
-type TimetableBlock = {
-  slot: TimetableSlot
-  startPeriod: number
-  endPeriod: number
-}
 
-const timetableBlocks = (slots: TimetableSlot[]): TimetableBlock[] => {
-  const expanded = new Map<string, { slot: TimetableSlot; period: number }>()
-  slots.forEach((slot) => {
-    periodsForSlot(slot).forEach((period) => {
-      expanded.set(`${slot.day}-${slot.courseId}-${slot.classroom}-${period}`, { slot, period })
-    })
-  })
 
-  const blocks: TimetableBlock[] = []
-  ;[...expanded.values()]
-    .sort((left, right) => left.slot.day - right.slot.day || left.period - right.period)
-    .forEach(({ slot, period }) => {
-      const previous = blocks.at(-1)
-      if (
-        previous &&
-        previous.slot.day === slot.day &&
-        previous.slot.courseId === slot.courseId &&
-        previous.slot.classroom === slot.classroom &&
-        previous.endPeriod + 1 === period
-      ) {
-        previous.endPeriod = period
-        return
-      }
-      blocks.push({ slot, startPeriod: period, endPeriod: period })
-    })
-  return blocks
-}
 
-const visibleTimetablePeriods = (blocks: TimetableBlock[]) => {
-  if (!blocks.length) {
-    return periods.filter((period) =>
-      period.value >= 1 && period.value <= 10 && period.value !== 5,
-    )
-  }
-  const first = Math.min(1, ...blocks.map((block) => block.startPeriod))
-  const last = Math.max(10, ...blocks.map((block) => block.endPeriod))
-  return periods.filter((period) =>
-    period.value >= first && period.value <= last && period.value !== 5,
-  )
-}
 
-const creditSummaryFromGrades = (grades: Grade[]): CreditSummary => {
-  const passed = grades.filter((grade) =>
-    grade.score === null
-      ? !/不及格|未通過|F/i.test(grade.letter ?? '')
-      : grade.score >= 60,
-  )
-  const totalEarned = passed.reduce((total, grade) => total + grade.credits, 0)
-  const requiredEarned = passed
-    .filter((grade) => grade.required)
-    .reduce((total, grade) => total + grade.credits, 0)
-  return {
-    ...emptyCredits,
-    totalEarned,
-    requiredEarned,
-    electiveEarned: totalEarned - requiredEarned,
-  }
-}
 
 const semesterDataFromCache = (entry: SemesterCacheEntry): SemesterData => ({
   timetable: entry.timetable,
@@ -256,15 +140,7 @@ const semesterDataFromCache = (entry: SemesterCacheEntry): SemesterData => ({
   credits: entry.credits,
 })
 
-const monthLabel = (date: Date) =>
-  `${date.getFullYear()}年${date.getMonth() + 1}月`
 
-const isoDate = (date: Date) => {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
 
 function App() {
   const [session, setSession] = useState<AuthSession | null>(null)
@@ -574,7 +450,7 @@ function App() {
     let mounted = true
     const boot = async () => {
       try {
-        const { credentialsStore } = await import('./storage/credentialsStorage')
+        const { credentialsStore } = await import('./core/storage/credentialsStorage')
         if (credentialsStore.hasPin()) {
           setIsPinLocked(true)
           if (mounted) setIsBooting(false)
@@ -612,7 +488,7 @@ function App() {
   }, [loadAppData, loadLoginChallenge])
 
   useEffect(() => {
-    import('./storage/credentialsStorage').then(({ credentialsStore }) => {
+    import('./core/storage/credentialsStorage').then(({ credentialsStore }) => {
       setHasPin(credentialsStore.hasPin())
     })
   }, [showPinSetup, showPinVerifyForDisable])
@@ -692,10 +568,10 @@ function App() {
       await authStore.saveSession(nextSession!)
       
       if (rememberMe) {
-        const { credentialsStore } = await import('./storage/credentialsStorage')
+        const { credentialsStore } = await import('./core/storage/credentialsStorage')
         await credentialsStore.saveCredentials({ studentId, password })
       } else {
-        const { credentialsStore } = await import('./storage/credentialsStorage')
+        const { credentialsStore } = await import('./core/storage/credentialsStorage')
         await credentialsStore.clearCredentials()
       }
       
@@ -770,7 +646,7 @@ function App() {
   const logout = async () => {
     dataRequestRef.current += 1
     await authStore.clearSession()
-    const { credentialsStore } = await import('./storage/credentialsStorage')
+    const { credentialsStore } = await import('./core/storage/credentialsStorage')
     await credentialsStore.clearCredentials()
     await clearPortalSession()
     await clearSemesterCache()
@@ -877,7 +753,7 @@ function App() {
           setIsPinLocked(false)
           authStore.clearSession()
           setSession(null)
-          import('./storage/credentialsStorage').then(({ credentialsStore }) => {
+          import('./core/storage/credentialsStorage').then(({ credentialsStore }) => {
             credentialsStore.clearCredentials()
           })
           loadLoginChallenge()
@@ -899,7 +775,7 @@ function App() {
     return (
       <PinUnlockScreen 
         onUnlocked={async (pin) => {
-          const { credentialsStore } = await import('./storage/credentialsStorage')
+          const { credentialsStore } = await import('./core/storage/credentialsStorage')
           await credentialsStore.removePin(pin)
           setShowPinVerifyForDisable(false)
         }} 
@@ -1285,868 +1161,9 @@ function StudentStrip({
   )
 }
 
-function TimetableScreen({
-  onOpenCourse,
-  slots,
-  viewMode,
-}: {
-  onOpenCourse: (slot: TimetableSlot) => void
-  slots: TimetableSlot[]
-  viewMode: 'grid' | 'list'
-}) {
-  const today = new Date().getDay()
-  const [listDay, setListDay] = useState(() => (today >= 1 && today <= 5 ? today : 1))
-  const blocks = useMemo(() => timetableBlocks(slots), [slots])
-  const visiblePeriods = useMemo(() => visibleTimetablePeriods(blocks), [blocks])
-  const periodRows = new Map(visiblePeriods.map((period, index) => [period.value, index + 2]))
-  const cells = useMemo(() => {
-    const expanded = new Map<string, { slot: TimetableSlot; period: number }>()
-    slots.forEach((slot) => {
-      periodsForSlot(slot).forEach((period) => {
-        if (slot.day < 1 || slot.day > 5) return
-        expanded.set(`${slot.day}-${period}-${slot.courseId}`, { slot, period })
-      })
-    })
-    return [...expanded.values()]
-  }, [slots])
-  const listGroups = useMemo(() => {
-    const grouped = new Map<number, TimetableBlock[]>()
-    blocks
-      .filter((block) => block.slot.day >= 1 && block.slot.day <= 7)
-      .sort(
-        (left, right) =>
-          left.slot.day - right.slot.day ||
-          left.startPeriod - right.startPeriod ||
-          left.slot.courseTitle.localeCompare(right.slot.courseTitle, 'zh-TW'),
-      )
-      .forEach((block) => {
-        const dayBlocks = grouped.get(block.slot.day) ?? []
-        dayBlocks.push(block)
-        grouped.set(block.slot.day, dayBlocks)
-      })
-    return [...grouped.entries()]
-  }, [blocks])
-  const selectedListBlocks = listGroups.find(([day]) => day === listDay)?.[1] ?? []
 
-  return (
-    <section className="timetable-screen">
-      {viewMode === 'grid' ? (
-        <div
-          className="timetable-grid"
-          role="grid"
-          aria-label="每週課表"
-          style={{ '--period-count': visiblePeriods.length } as CSSProperties}
-        >
-          <div className="grid-corner" role="columnheader" aria-label="節次" />
-          {weekdays.map((day, dayIndex) => (
-            <div
-              className={`day-header ${today === day.value ? 'today' : ''}`}
-              key={day.value}
-              role="columnheader"
-              style={{ gridColumn: dayIndex + 2 }}
-            >
-              {day.short}
-            </div>
-          ))}
-          {visiblePeriods.map((period, periodIndex) => (
-            <div
-              className={`period-band ${periodIndex % 2 ? 'alternate' : ''}`}
-              key={`band-${period.value}`}
-              style={{ gridColumn: '1 / -1', gridRow: periodIndex + 2 }}
-            />
-          ))}
-          {visiblePeriods.map((period, periodIndex) => (
-            <div
-              className="period-label"
-              key={period.value}
-              role="rowheader"
-              style={{ gridColumn: 1, gridRow: periodIndex + 2 }}
-            >
-              <strong>{getPeriodLabel(period.value)}</strong>
-              <span>{period.time}</span>
-            </div>
-          ))}
-          {cells.map(({ slot, period }) => {
-            const row = periodRows.get(period)
-            if (!row) return null
-            return (
-              <button
-                className="course-cell"
-                key={`${slot.day}-${slot.courseId}-${period}`}
-                style={{
-                  '--course-color': courseColor(slot),
-                  gridColumn: slot.day + 1,
-                  gridRow: row,
-                } as CSSProperties}
-                type="button"
-                onClick={() => onOpenCourse(slot)}
-              >
-                <strong>{slot.courseTitle}</strong>
-                {slot.classroom ? <span>{slot.classroom}</span> : null}
-              </button>
-            )
-          })}
-        </div>
-      ) : (
-        <div className="timetable-list" aria-label="條列課表">
-          <div className="day-picker" role="tablist" aria-label="選擇星期">
-            {weekdays.map((day) => (
-              <button
-                className={listDay === day.value ? 'active' : ''}
-                key={day.value}
-                type="button"
-                role="tab"
-                aria-selected={listDay === day.value}
-                onClick={() => setListDay(day.value)}
-              >
-                {day.short}
-              </button>
-            ))}
-          </div>
-          <section className="timetable-list-day">
-            <div className={`timetable-list-day-label ${today === listDay ? 'today' : ''}`}>
-              <span>星期{weekdays.find((day) => day.value === listDay)?.short}</span>
-              <small>{selectedListBlocks.length} 堂</small>
-            </div>
-            {selectedListBlocks.length ? (
-              <div className="timetable-list-rows">
-                {selectedListBlocks.map((block) => {
-                  const periodLabel =
-                    block.startPeriod === block.endPeriod
-                      ? `第 ${getPeriodLabel(block.startPeriod)} 節`
-                      : `第 ${getPeriodLabel(block.startPeriod)}-${getPeriodLabel(block.endPeriod)} 節`
-                  const timeLabel = [block.slot.startsAt, block.slot.endsAt]
-                    .filter(Boolean)
-                    .join(' - ')
-                  const locationLabel = [block.slot.instructor, block.slot.classroom]
-                    .filter(Boolean)
-                    .join(' · ')
 
-                  return (
-                    <button
-                      className="timetable-list-row"
-                      key={`${listDay}-${block.slot.courseId}-${block.startPeriod}`}
-                      type="button"
-                      onClick={() => onOpenCourse(block.slot)}
-                    >
-                      <span
-                        className="timetable-list-color"
-                        style={{ '--course-color': courseColor(block.slot) } as CSSProperties}
-                        aria-hidden="true"
-                      />
-                      <span className="timetable-list-time">
-                        <strong>{periodLabel}</strong>
-                        {timeLabel ? <small>{timeLabel}</small> : null}
-                      </span>
-                      <span className="timetable-list-course">
-                        <strong>{block.slot.courseTitle}</strong>
-                        {locationLabel ? <small>{locationLabel}</small> : null}
-                      </span>
-                      <ChevronRight size={18} aria-hidden="true" />
-                    </button>
-                  )
-                })}
-              </div>
-            ) : (
-              <div className="inline-empty compact timetable-day-empty">
-                <Clock3 size={22} />
-                <span>星期{weekdays.find((day) => day.value === listDay)?.short}沒有課程</span>
-              </div>
-            )}
-          </section>
-        </div>
-      )}
-      {!slots.length ? (
-        <div className="inline-empty timetable-empty">
-          <Clock3 size={24} />
-          <strong>尚未取得 AIS 課表</strong>
-          <span>這個學期沒有課程，或 AIS 暫時沒有回傳選課課表</span>
-        </div>
-      ) : null}
-    </section>
-  )
-}
 
-function CalendarScreen({
-  events,
-  onDeleteEvent,
-  onRequestAdd,
-}: {
-  events: CalendarEvent[]
-  onDeleteEvent: (id: string) => void
-  onRequestAdd: (date: string) => void
-}) {
-  const [cursor, setCursor] = useState(() => {
-    const now = new Date()
-    return new Date(now.getFullYear(), now.getMonth(), 1)
-  })
-  const [selectedDate, setSelectedDate] = useState(() => isoDate(new Date()))
-  const swipeStart = useRef<{ x: number; y: number; pointerId: number } | null>(null)
-  const suppressCalendarClick = useRef(false)
-  const firstDayOffset = (cursor.getDay() + 6) % 7
-  const totalDays = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0).getDate()
-  const cells = Array.from({ length: 42 }, (_, index) => {
-    const day = index - firstDayOffset + 1
-    return day >= 1 && day <= totalDays ? day : null
-  })
-  const selectedEvents = events
-    .filter((event) => {
-      const end = event.endsOn || event.startsOn
-      return selectedDate >= event.startsOn && selectedDate <= end
-    })
-    .sort((a, b) =>
-      `${a.time ?? '99:99'}-${a.title}`.localeCompare(`${b.time ?? '99:99'}-${b.title}`),
-    )
-  const shiftMonth = (offset: number) => {
-    setCursor((current) => {
-      const next = new Date(current.getFullYear(), current.getMonth() + offset, 1)
-      setSelectedDate(isoDate(next))
-      return next
-    })
-  }
-  const startMonthSwipe = (event: ReactPointerEvent<HTMLDivElement>) => {
-    swipeStart.current = {
-      x: event.clientX,
-      y: event.clientY,
-      pointerId: event.pointerId,
-    }
-    try {
-      event.currentTarget.setPointerCapture?.(event.pointerId)
-    } catch {
-      // Synthetic pointer events and older WebViews may not expose an active pointer.
-    }
-  }
-  const finishMonthSwipe = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const start = swipeStart.current
-    swipeStart.current = null
-    if (!start || start.pointerId !== event.pointerId) return
-
-    const horizontal = event.clientX - start.x
-    const vertical = event.clientY - start.y
-    if (Math.abs(horizontal) < 48 || Math.abs(horizontal) <= Math.abs(vertical) * 1.2) return
-
-    suppressCalendarClick.current = true
-    window.setTimeout(() => {
-      suppressCalendarClick.current = false
-    }, 0)
-    shiftMonth(horizontal < 0 ? 1 : -1)
-  }
-
-  return (
-    <section className="calendar-screen">
-      <div
-        className="calendar-swipe-area"
-        onClickCapture={(event) => {
-          if (!suppressCalendarClick.current) return
-          event.preventDefault()
-          event.stopPropagation()
-        }}
-        onPointerCancel={() => {
-          swipeStart.current = null
-        }}
-        onPointerDown={startMonthSwipe}
-        onPointerUp={finishMonthSwipe}
-      >
-        <div className="calendar-toolbar">
-          <button
-            className="plain-icon"
-            type="button"
-            aria-label="上個月"
-            onClick={() => shiftMonth(-1)}
-          >
-            <ChevronLeft size={22} />
-          </button>
-          <strong>{monthLabel(cursor)}</strong>
-          <div className="calendar-toolbar-actions">
-            <button
-              className="plain-icon"
-              type="button"
-              aria-label="下個月"
-              onClick={() => shiftMonth(1)}
-            >
-              <ChevronRight size={22} />
-            </button>
-            <button
-              className="plain-icon calendar-add"
-              type="button"
-              aria-label="新增個人事件"
-              title="新增個人事件"
-              onClick={() => onRequestAdd(selectedDate)}
-            >
-              <Plus size={21} />
-            </button>
-          </div>
-        </div>
-        <div className="calendar-weekdays">
-          {['一', '二', '三', '四', '五', '六', '日'].map((day) => <span key={day}>{day}</span>)}
-        </div>
-        <div className="calendar-grid" key={`${cursor.getFullYear()}-${cursor.getMonth()}`}>
-          {cells.map((day, index) => {
-            if (!day) return <span className="calendar-blank" key={`blank-${index}`} />
-            const date = isoDate(new Date(cursor.getFullYear(), cursor.getMonth(), day))
-            const dateEvents = events.filter((event) => {
-              const end = event.endsOn || event.startsOn
-              return date >= event.startsOn && date <= end
-            })
-            const hasOfficialEvent = dateEvents.some((event) => event.source !== 'personal')
-            const hasPersonalEvent = dateEvents.some((event) => event.source === 'personal')
-            return (
-              <button
-                className={`calendar-day ${selectedDate === date ? 'selected' : ''}`}
-                key={date}
-                type="button"
-                onClick={() => setSelectedDate(date)}
-              >
-                <span>{day}</span>
-                {hasOfficialEvent || hasPersonalEvent ? (
-                  <span className="calendar-markers" aria-hidden="true">
-                    {hasOfficialEvent ? <i className="official" /> : null}
-                    {hasPersonalEvent ? <i className="personal" /> : null}
-                  </span>
-                ) : null}
-              </button>
-            )
-          })}
-        </div>
-      </div>
-      <div className="agenda">
-        <div className="section-label">{selectedDate}</div>
-        {selectedEvents.length ? (
-          selectedEvents.map((event) => (
-            <div className={`agenda-row ${event.source === 'personal' ? 'personal' : 'official'}`} key={event.id}>
-              <span className="agenda-dot" />
-              <div className="agenda-copy">
-                <strong>{event.title}</strong>
-                <span>
-                  {event.category}
-                  {event.time ? ` · ${event.time}` : ''}
-                  {event.endsOn && event.endsOn !== event.startsOn ? ` · 至 ${event.endsOn}` : ''}
-                </span>
-                {event.notes ? <p>{event.notes}</p> : null}
-              </div>
-              {event.source === 'personal' ? (
-                <button
-                  className="agenda-delete"
-                  type="button"
-                  aria-label={`刪除${event.title}`}
-                  title="刪除個人事件"
-                  onClick={() => onDeleteEvent(event.id)}
-                >
-                  <Trash2 size={17} />
-                </button>
-              ) : null}
-            </div>
-          ))
-        ) : (
-          <div className="inline-empty compact">
-            <CalendarDays size={22} />
-            <span>此日期沒有行事</span>
-          </div>
-        )}
-      </div>
-    </section>
-  )
-}
-
-function GradesScreen({
-  credits,
-  grades,
-  onDeleteGrade,
-}: {
-  credits: { totalEarned: number; requiredEarned: number; electiveEarned: number; gpa: number }
-  grades: Grade[]
-  onDeleteGrade: (id: string) => void
-}) {
-  const gpaPercent = Math.min(100, Math.max(0, (credits.gpa / GPA_MAX) * 100))
-
-  return (
-    <section className="grades-screen" style={{ padding: '12px' }}>
-      {/* Dynamic Glassmorphic GPA Dashboard Card */}
-      <div
-        className="gpa-dashboard-card"
-        style={{
-          background: 'rgba(23, 26, 31, 0.65)',
-          backdropFilter: 'blur(16px)',
-          border: '1px solid rgba(255, 255, 255, 0.08)',
-          borderRadius: '12px',
-          padding: '18px',
-          marginBottom: '16px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: '16px',
-          boxShadow: 'var(--shadow)',
-        }}
-      >
-        <div style={{ display: 'grid', gap: '6px' }}>
-          <span style={{ color: 'var(--muted)', fontSize: '12px', fontWeight: 700 }}>GPA 試算與學分統計</span>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: '4px' }}>
-            <span style={{ fontSize: '32px', fontWeight: 900, color: 'var(--active)' }}>{credits.gpa.toFixed(2)}</span>
-            <span style={{ color: 'var(--muted)', fontSize: '14px' }}>/ 4.00</span>
-          </div>
-          <div style={{ color: 'var(--ink)', fontSize: '13px', display: 'flex', gap: '10px' }}>
-            <span>已得：<strong>{credits.totalEarned}</strong> 學分</span>
-            <span>必修：<strong>{credits.requiredEarned}</strong></span>
-          </div>
-        </div>
-
-        {/* Conic progress circle wrapper */}
-        <div
-          className="gpa-circle-progress"
-          style={{
-            position: 'relative',
-            width: '68px',
-            height: '68px',
-            borderRadius: '50%',
-            background: `conic-gradient(var(--active) ${gpaPercent}%, #252a30 0)`,
-            display: 'grid',
-            placeItems: 'center',
-          }}
-        >
-          <div
-            style={{
-              width: '54px',
-              height: '54px',
-              borderRadius: '50%',
-              background: '#171a1f',
-              display: 'grid',
-              placeItems: 'center',
-              fontSize: '11px',
-              fontWeight: 800,
-              color: 'var(--ink)',
-            }}
-          >
-            {Math.round(gpaPercent)}%
-          </div>
-        </div>
-      </div>
-
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-        <span className="section-label" style={{ margin: 0 }}>學期成績清單</span>
-      </div>
-
-      {grades.length ? (
-        <div className="grade-list" style={{ borderTop: '1px solid var(--line)', background: '#111419', borderRadius: '8px', overflow: 'hidden' }}>
-          {grades.map((grade) => (
-            <div className="grade-row" key={grade.id} style={{ borderBottom: '1px solid var(--line)', padding: '12px 14px' }}>
-              <div style={{ flex: 1 }}>
-                <strong style={{ display: 'block', fontSize: '14px', marginBottom: '3px' }}>{grade.courseTitle}</strong>
-                <span style={{ fontSize: '11px', color: 'var(--muted)' }}>
-                  {grade.credits} 學分 · {grade.category} {grade.required ? '(必修)' : '(選修)'}
-                  {grade.id.startsWith('custom-') ? ' · [模擬]' : ''}
-                </span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <b style={{ fontSize: '20px', color: '#65c5ff' }}>{grade.score ?? grade.letter ?? '—'}</b>
-                {grade.id.startsWith('custom-') ? (
-                  <button
-                    type="button"
-                    style={{
-                      background: 'transparent',
-                      color: 'var(--danger)',
-                      padding: '6px',
-                      borderRadius: '4px',
-                      display: 'grid',
-                      placeItems: 'center',
-                    }}
-                    onClick={() => onDeleteGrade(grade.id)}
-                    aria-label="刪除模擬成績"
-                  >
-                    <Trash2 size={15} />
-                  </button>
-                ) : null}
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="inline-empty" style={{ background: '#111419', borderRadius: '8px' }}>
-          <GraduationCap size={26} />
-          <strong>尚未取得 AIS 成績</strong>
-          <span>請按右上角重新整理；模擬成績已移到三點選單</span>
-        </div>
-      )}
-    </section>
-  )
-}
-
-function MoreScreen({
-  avatarUrl,
-  data,
-  onAvatarChange,
-  onLogout,
-  onOpen,
-}: {
-  avatarUrl: string
-  data: AppData
-  onAvatarChange: (dataUrl: string) => void
-  onLogout: () => Promise<void>
-  onOpen: (view: MoreView) => void
-}) {
-  const avatarInputRef = useRef<HTMLInputElement>(null)
-  const [avatarBusy, setAvatarBusy] = useState(false)
-
-  const changeAvatar = async (file?: File) => {
-    if (!file) return
-    setAvatarBusy(true)
-    try {
-      onAvatarChange(await cropAvatarFile(file))
-    } catch (error) {
-      alert(messageFromError(error))
-    } finally {
-      setAvatarBusy(false)
-      if (avatarInputRef.current) avatarInputRef.current.value = ''
-    }
-  }
-
-  const tools: Array<{ icon: typeof Bell; label: string; view: MoreView }> = [
-    { icon: Building2, label: '海大校務系統', view: 'portal' },
-    { icon: Bell, label: '校務公告', view: 'announcements' },
-    { icon: CalendarDays, label: '重要日期', view: 'calendar' },
-    { icon: LinkIcon, label: '海大連結', view: 'campus' },
-    { icon: Bus, label: '交通與地圖', view: 'traffic' },
-    { icon: Phone, label: '緊急聯絡', view: 'emergency' },
-    { icon: ShieldCheck, label: '帳號與設定', view: 'settings' },
-  ]
-  return (
-    <section className="more-screen">
-      <div className="profile-block">
-        <button
-          className="avatar-picker"
-          type="button"
-          aria-label="更換頭像"
-          title="更換頭像"
-          disabled={avatarBusy}
-          onClick={() => avatarInputRef.current?.click()}
-        >
-          <span className="student-avatar large">
-            {avatarUrl ? <img src={avatarUrl} alt="" /> : data.profile.avatarInitials}
-          </span>
-          <span className="avatar-picker-badge" aria-hidden="true">
-            <Camera size={12} />
-          </span>
-        </button>
-        <input
-          ref={avatarInputRef}
-          className="sr-only"
-          type="file"
-          accept="image/*"
-          tabIndex={-1}
-          onChange={(event) => void changeAvatar(event.target.files?.[0])}
-        />
-        <div>
-          <strong>{data.profile.name === data.profile.id ? '海大學生' : data.profile.name}</strong>
-          <span>{data.profile.id}</span>
-        </div>
-      </div>
-      <div className="tool-list">
-        {tools.map((tool) => {
-          const Icon = tool.icon
-          return (
-            <button key={tool.view} type="button" onClick={() => onOpen(tool.view)}>
-              <Icon size={22} />
-              <span>{tool.label}</span>
-              <ChevronRight size={19} />
-            </button>
-          )
-        })}
-      </div>
-      <button className="direct-logout" type="button" onClick={() => void onLogout()}>
-        <LogOut size={22} />
-        <span>登出海大 AIS</span>
-        <ChevronRight size={19} />
-      </button>
-    </section>
-  )
-}
-
-function MoreSubview({
-  data,
-  loadPortalMenu,
-  onLogout,
-  onOpenPortalPage,
-  onReauthenticate,
-  onEnablePin,
-  onDisablePin,
-  hasPin,
-  view,
-}: {
-  data: AppData
-  loadPortalMenu?: (path: string[]) => Promise<PortalSystemNode[]>
-  onLogout: () => Promise<void>
-  onOpenPortalPage?: (path: string[]) => Promise<void>
-  onReauthenticate: () => Promise<void>
-  onEnablePin?: () => void
-  onDisablePin?: () => void
-  hasPin?: boolean
-  view: MoreView
-}) {
-  if (view === 'portal') {
-    return (
-      <PortalSystemScreen
-        loadMenu={loadPortalMenu}
-        onOpenPage={onOpenPortalPage}
-        onReauthenticate={onReauthenticate}
-      />
-    )
-  }
-
-  if (view === 'settings') {
-    return (
-      <section className="subview">
-        <div className="settings-row">
-          <span>資料來源</span>
-          <strong>{apiMode === 'portal' ? '海大 AIS 直連' : apiMode}</strong>
-        </div>
-        <div className="settings-row">
-          <span>Cookie</span>
-          <strong>僅存在本機</strong>
-        </div>
-        <div className="settings-row">
-          <span>PIN 碼保護</span>
-          <button 
-            className="secondary-button" 
-            onClick={hasPin ? onDisablePin : onEnablePin}
-            style={{ padding: '6px 12px', fontSize: '13px', borderRadius: '6px', background: 'var(--brand)', color: 'white', fontWeight: 'bold' }}
-          >
-            {hasPin ? '停用' : '啟用'}
-          </button>
-        </div>
-        <button className="logout-button" type="button" onClick={() => void onLogout()}>
-          <LogOut size={19} />
-          登出
-        </button>
-      </section>
-    )
-  }
-
-  if (view === 'emergency') {
-    return (
-      <LinkList
-        items={emergencyContacts.map((contact) => ({
-          id: contact.id,
-          title: contact.title,
-          subtitle: contact.subtitle,
-          url: `tel:${contact.phone}`,
-        }))}
-      />
-    )
-  }
-
-  if (view === 'campus') return <LinkList items={data.campusLinks} />
-  if (view === 'traffic') return <LinkList items={data.traffic} />
-
-  if (view === 'announcements') {
-    return data.announcements.length ? (
-      <LinkList items={data.announcements.map((item) => ({
-        id: item.id,
-        title: item.title,
-        subtitle: `${item.source} · ${item.publishedAt}`,
-        url: item.url,
-      }))} />
-    ) : (
-      <div className="inline-empty"><Bell size={24} /><span>尚未取得 AIS 公告</span></div>
-    )
-  }
-
-  return data.calendar.length ? (
-    <div className="event-list">
-      {data.calendar.map((event) => (
-        <div className="event-row" key={event.id}>
-          <CalendarDays size={20} />
-          <div><strong>{event.title}</strong><span>{event.startsOn}</span></div>
-        </div>
-      ))}
-    </div>
-  ) : (
-    <div className="inline-empty"><CalendarDays size={24} /><span>尚未取得海大官方行事曆</span></div>
-  )
-}
-
-function PortalSystemScreen({
-  loadMenu,
-  onOpenPage,
-  onReauthenticate,
-}: {
-  loadMenu?: (path: string[]) => Promise<PortalSystemNode[]>
-  onOpenPage?: (path: string[]) => Promise<void>
-  onReauthenticate: () => Promise<void>
-}) {
-  const [path, setPath] = useState<string[]>([])
-  const [nodes, setNodes] = useState<PortalSystemNode[]>([])
-  const [loading, setLoading] = useState(true)
-  const [openingId, setOpeningId] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [retryKey, setRetryKey] = useState(0)
-  const cache = useRef(new Map<string, PortalSystemNode[]>())
-
-  useEffect(() => {
-    let active = true
-    const key = path.join('>')
-    const cached = cache.current.get(key)
-    if (cached) {
-      setNodes(cached)
-      setError(null)
-      setLoading(false)
-      return () => {
-        active = false
-      }
-    }
-
-    if (!loadMenu) {
-      setNodes([])
-      setError('目前資料模式不支援海大校務系統')
-      setLoading(false)
-      return () => {
-        active = false
-      }
-    }
-
-    setLoading(true)
-    setError(null)
-    void loadMenu(path)
-      .then((nextNodes) => {
-        if (!active) return
-        cache.current.set(key, nextNodes)
-        setNodes(nextNodes)
-      })
-      .catch((loadError) => {
-        if (!active) return
-        setNodes([])
-        setError(messageFromError(loadError))
-      })
-      .finally(() => {
-        if (active) setLoading(false)
-      })
-
-    return () => {
-      active = false
-    }
-  }, [loadMenu, path, retryKey])
-
-  const openNode = async (node: PortalSystemNode) => {
-    if (node.kind === 'group') {
-      setPath(node.path)
-      return
-    }
-    if (!onOpenPage) {
-      setError('目前資料模式無法開啟海大校務功能')
-      return
-    }
-
-    setOpeningId(node.id)
-    setError(null)
-    try {
-      await onOpenPage(node.path)
-    } catch (openError) {
-      setError(messageFromError(openError))
-    } finally {
-      setOpeningId(null)
-    }
-  }
-  const sessionExpired = Boolean(error && /登入.*(?:過期|失效)|工作階段.*失效/i.test(error))
-
-  return (
-    <section className="portal-system-screen">
-      <div className="portal-system-path">
-        {path.length ? (
-          <button
-            className="plain-icon"
-            type="button"
-            aria-label="返回上一層校務系統"
-            onClick={() => setPath((current) => current.slice(0, -1))}
-          >
-            <ChevronLeft size={21} />
-          </button>
-        ) : (
-          <Building2 size={22} aria-hidden="true" />
-        )}
-        <div>
-          <strong>{path.at(-1) ?? '海洋大學教學務系統'}</strong>
-          {path.length > 1 ? <span>{path.slice(0, -1).join(' / ')}</span> : null}
-        </div>
-      </div>
-
-      {error ? (
-        <div className="portal-system-error-wrap">
-          <div className="portal-system-error">
-            <AlertCircle size={18} />
-            <span>{error}</span>
-            <button
-              type="button"
-              aria-label="重新載入校務系統"
-              title="重新載入"
-              onClick={() => setRetryKey((key) => key + 1)}
-            >
-              <RefreshCw size={18} />
-            </button>
-          </div>
-          {sessionExpired ? (
-            <button
-              className="portal-reauth-button"
-              type="button"
-              onClick={() => void onReauthenticate()}
-            >
-              <KeyRound size={18} />
-              <span>重新登入 AIS</span>
-            </button>
-          ) : null}
-        </div>
-      ) : null}
-
-      {loading ? (
-        <div className="inline-empty compact">
-          <div className="spinner small" aria-label="讀取校務系統" />
-        </div>
-      ) : nodes.length ? (
-        <div className="portal-system-list">
-          {nodes.map((node) => (
-            <button
-              key={node.id}
-              type="button"
-              disabled={openingId === node.id}
-              onClick={() => void openNode(node)}
-            >
-              <span className={`portal-node-icon ${node.kind}`}>
-                {node.kind === 'group' ? <Plus size={16} /> : <ExternalLink size={15} />}
-              </span>
-              <span>{node.title}</span>
-              {openingId === node.id ? (
-                <RefreshCw className="spin" size={18} />
-              ) : (
-                <ChevronRight size={18} />
-              )}
-            </button>
-          ))}
-        </div>
-      ) : !error ? (
-        <div className="inline-empty compact">
-          <span>此分類沒有可用功能</span>
-        </div>
-      ) : null}
-    </section>
-  )
-}
-
-function LinkList({
-  items,
-}: {
-  items: Array<{ id: string; title: string; subtitle: string; url: string }>
-}) {
-  return (
-    <div className="link-list">
-      {items.map((item) => (
-        <a href={item.url} key={item.id} rel="noreferrer" target="_blank">
-          <div>
-            <strong>{item.title}</strong>
-            <span>{item.subtitle}</span>
-          </div>
-          <ExternalLink size={18} />
-        </a>
-      ))}
-    </div>
-  )
-}
 
 function CourseSheet({
   course,
