@@ -8,6 +8,7 @@ import {
   Clock3,
   GraduationCap,
   LayoutGrid,
+  List as ListIcon,
   Menu,
   MoreVertical,
   Plus,
