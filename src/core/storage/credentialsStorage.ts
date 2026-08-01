@@ -20,7 +20,7 @@ import {
   encryptPayload,
   getOrCreateDeviceKey,
   deleteDeviceKey,
-} from '../core/crypto'
+} from '../crypto'
 
 const CREDENTIALS_KEY = 'ntou_tat_user_credentials'
 const PIN_META_KEY = 'ntou_tat_pin_meta_v1'

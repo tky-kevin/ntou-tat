@@ -45,7 +45,7 @@ function withAutoLogin(api: NtouApi, onUnauthorized: () => void): NtouApi {
                   if (!challenge.captchaDataUrl) {
                     throw new Error('No captcha data url')
                   }
-                  const { recognizeCaptcha } = await import('../utils/ocr')
+                  const { recognizeCaptcha } = await import("../../utils/ocr");
                   const captchaCode = await recognizeCaptcha(challenge.captchaDataUrl)
                   console.log(`[AutoLogin] OCR Result: ${captchaCode}`)
                   
