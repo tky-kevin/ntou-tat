@@ -1,42 +1,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
 import { App as CapApp } from '@capacitor/app'
 import {
   AlertCircle,
-  Bell,
-  Building2,
-  Bus,
-  Camera,
   CalendarDays,
   ChevronLeft,
-  ChevronRight,
   Clock,
   Clock3,
-  ExternalLink,
-  FileText,
   GraduationCap,
-  KeyRound,
   LayoutGrid,
-  Link as LinkIcon,
-  List as ListIcon,
-  LogOut,
   Menu,
   MoreVertical,
-  Phone,
   Plus,
   RefreshCw,
-  Loader2,
-  ShieldCheck,
-  Trash2,
-  X,
 } from 'lucide-react'
 import './App.css'
-import { apiMode, createNtouApi } from './core/api'
+import { createNtouApi } from './core/api'
 import { UnauthorizedError } from './core/api/errors'
-import { emergencyContacts, emptyCredits } from './core/api/publicData'
+import { emptyCredits } from './core/api/publicData'
 import { clearPortalSession } from './core/api/portal'
-import { cropAvatarFile, readStoredAvatar, storeAvatar } from './avatar'
-import { GPA_MAX, hasPassingResult, scoreToGpa } from './gpa'
+import { readStoredAvatar, storeAvatar } from './avatar'
+import { scoreToGpa } from './gpa'
 import { authStore } from './core/storage/authStorage'
 import {
   personalEventsForStudent,
@@ -54,13 +37,12 @@ import {
 import { PinSetupScreen } from './features/pin/PinSetupScreen'
 import { PinUnlockScreen } from './features/pin/PinUnlockScreen'
 import { TimetableScreen } from './features/timetable/TimetableScreen'
-import { coursesFromTimetable } from './features/timetable/utils'
-import { CalendarScreen } from './features/calendar/CalendarScreen'
+import { coursesFromTimetable, periods } from './features/timetable/utils'
+import { CalendarScreen, isoDate } from './features/calendar/CalendarScreen'
 import { GradesScreen } from './features/grades/GradesScreen'
 import { creditSummaryFromGrades } from './features/grades/utils'
 import { MoreScreen, MoreSubview } from './features/more/MoreScreen'
 import { moreViewTitle } from './features/more/utils'
-import { PortalSystemScreen } from './features/portal/PortalSystemScreen'
 import { CourseSheet } from './features/course/CourseSheet'
 import { AddCourseModal } from './features/course/AddCourseModal'
 import { LoginScreen } from './features/auth/LoginScreen'
@@ -79,7 +61,6 @@ import type {
   Grade,
   LoginChallenge,
   MoreView,
-  PortalSystemNode,
   Semester,
   StudentProfile,
   TabKey,
